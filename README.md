@@ -9,6 +9,13 @@ To handle this fairly large dataset, this app makes use of
 [Dask](https://dask.org/) for parallel processing, and
 [Datashader](https://datashader.org/) for server side rendering. 
 
+## cudf setup
+
+```bash
+conda install -c rapidsai -c nvidia -c conda-forge \
+    -c defaults cudf=0.12 python=3.7 cudatoolkit=10.0 pyarrow
+```
+
 ## Environment
 First, create a virtualenv or conda environment that includes the dependencies listed
 in the `requirements.txt` file.
@@ -24,6 +31,12 @@ https://drive.google.com/open?id=1mOZq24EFI0eNC2xtVEFQyPxVPHLZI9QN, then unzip i
 `cell_towers.parq` (even though it has a file extension, this will be a directory)
 and place it at `data/cell_towers.parq`. 
 
+
+## Data setup for cudf
+the `notebooks/prepare_cell_data.ipynb` Jupyter notebook contains instructions
+for downloading the raw data, and the notebook itself will process the data set and
+write out a compressed arrow file to the `./data` directory
+
 ## Mapbox setup
 To run the dashboard, create a file name `.mapbox_token` under to root directory. This
 file should contain a valid Mapbox token, which can be obtained for free by setting up
@@ -37,6 +50,12 @@ configuration, edit the Dask options at the top of the `app.py` file.
 Launch the dashboard in development mode from the command line with...
 ```
 $ python app.py
+```
+
+For the gpu version powered by rapids cudf(https://github.com/rapidsai/cudf)
+
+```
+$ python app_gpu_cudf.py
 ```
 
 Then open the dashboard at the URL displayed by the command.
