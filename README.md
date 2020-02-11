@@ -15,6 +15,12 @@ To handle this fairly large dataset, this app makes use of
 ## cudf setup
 
 ```bash
+git clone https://github.com/AjayThorve/dash-world-cell-towers.git
+cd dash-world-cell-towers
+mkdir data
+cd data
+#download data from source
+cd ../
 
 conda create -n test_environment
 
