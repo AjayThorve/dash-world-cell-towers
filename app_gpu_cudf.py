@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 from distributed import Client, LocalCluster
 import pyarrow as pa
-import numpy as np
 import cupy as cp
 
 def read_arrow(source):
@@ -213,6 +212,20 @@ app.layout = html.Div(children=[
         """)),
         html.Div(children=[
             html.Div(children=[
+            html.H4([
+                "Compute Time (in seconds)",
+            ], className="container_title"),
+                dcc.Loading(
+                    dcc.Graph(
+                        id='console-graph',
+                        figure=blank_fig(row_heights[0]),
+                        config={'displayModeBar': False},
+                    ),
+                    className='svg-container',
+                    style={'height': 150},
+                ),
+            ], className='six columns pretty_container', id="console-div"),
+            html.Div(children=[
                 html.H4([
                     "Selected Towers",
                     html.Img(
@@ -342,9 +355,9 @@ app.layout = html.Div(children=[
 ])
 
 
-def compute_range_created_radio_hist(ddf):
+def compute_range_created_radio_hist(ddf_gpu):
     """
-    Use Datashader to compute a 3D histogram of ddf, binned by the created,
+    Use Datashader to compute a 3D histogram of ddf_gpu, binned by the created,
     log10_range, and radio dimensions
     """
     cvs2 = ds.Canvas(
@@ -356,7 +369,7 @@ def compute_range_created_radio_hist(ddf):
         plot_height=20, y_range=[min_log10_range, max_log10_range]
     )
 
-    agg = cvs2.points(ddf, x='created', y='log10_range', agg=ds.count_cat('radio'))
+    agg = cvs2.points(ddf_gpu, x='created', y='log10_range', agg=ds.count_cat('radio'))
 
     # Set created index back to datetime values
     agg = agg.assign_coords(created=created_bin_centers)
@@ -378,28 +391,29 @@ if __name__ == '__main__':
     #     print("done")
 
     # Load and preprocess dataset
-    ddf = None
+    ddf_gpu = None
     if os.path.isfile('./data/cell_towers.arrow'):
-        ddf = cudf.DataFrame.from_arrow(read_arrow('./data/cell_towers.arrow'))
+        ddf_gpu = cudf.DataFrame.from_arrow(read_arrow('./data/cell_towers.arrow'))
     else:
-        ddf = cudf.DataFrame.from_arrow(read_arrow('./data/cell_towers.arrow'))
-    ddf['radio'] = ddf['radio'].cat.as_ordered()
-    ddf['Description'] = ddf['Description'].cat.as_ordered()
-    ddf['Status'] = ddf['Status'].cat.as_ordered()
-    ddf['log10_range'] = np.log10(ddf['range'].to_pandas())
+        ddf_gpu = cudf.DataFrame.from_arrow(read_arrow('./data/cell_towers.arrow'))
+
+    ddf_gpu['radio'] = ddf_gpu['radio'].cat.as_ordered()
+    ddf_gpu['Description'] = ddf_gpu['Description'].cat.as_ordered()
+    ddf_gpu['Status'] = ddf_gpu['Status'].cat.as_ordered()
+    ddf_gpu['log10_range'] = cp.log10(ddf_gpu['range'])
 
     # Select columns to persist
-    ddf = ddf[[
+    ddf_gpu = ddf_gpu[[
         'radio', 'x_3857', 'y_3857', 'log10_range', 'created',  # Filtering
         'lat', 'lon', 'Description', 'Status', 'mcc', 'net'   # Hover info
     ]]
 
     # Persist Dask dataframe in memory
-    # ddf = ddf.repartition(npartitions=8).persist()
+    # ddf_gpu = ddf_gpu.repartition(npartitions=8).persist()
 
     data_3857 = (
-        [ddf['x_3857'].min(), ddf['y_3857'].min()],
-        [ddf['x_3857'].max(), ddf['y_3857'].max()],
+        [ddf_gpu['x_3857'].min(), ddf_gpu['y_3857'].min()],
+        [ddf_gpu['x_3857'].max(), ddf_gpu['y_3857'].max()],
     )
     data_center_3857 = [[
         (data_3857[0][0] + data_3857[1][0]) / 2.0,
@@ -415,11 +429,11 @@ if __name__ == '__main__':
     created_bins = created_bin_edges.astype('int')
 
     min_log10_range, max_log10_range = (
-        ddf['log10_range'].min(), ddf['log10_range'].max()
+        ddf_gpu['log10_range'].min(), ddf_gpu['log10_range'].max()
     )
 
     # Pre-compute histograms containing all observations
-    total_range_created_radio_agg = compute_range_created_radio_hist(ddf)
+    total_range_created_radio_agg = compute_range_created_radio_hist(ddf_gpu)
     
     total_radio_counts = total_range_created_radio_agg.sum(
         ['log10_range', 'created'])
@@ -485,7 +499,8 @@ if __name__ == '__main__':
 
 
     @app.callback(
-        [Output('indicator-graph', 'figure'), Output('map-graph', 'figure'),
+        [Output('console-graph', 'figure'),
+         Output('indicator-graph', 'figure'), Output('map-graph', 'figure'),
          Output('radio-histogram', 'figure'), Output('range-histogram', 'figure'),
          Output('created-histogram', 'figure')],
         [Input('map-graph', 'relayoutData'), Input('radio-histogram', 'selectedData'),
@@ -570,14 +585,14 @@ if __name__ == '__main__':
         # Build dataframe containing rows that satisfy the range and created selections
         if query_expr_range_created_parts:
             query_expr_range_created = ' & '.join(query_expr_range_created_parts)
-            ddf_selected_range_created = ddf.query(
+            ddf_gpu_selected_range_created = ddf_gpu.query(
                 query_expr_range_created
             )
         else:
-            ddf_selected_range_created = ddf
+            ddf_gpu_selected_range_created = ddf_gpu
 
         # Build dataframe containing rows of towers within the map viewport
-        ddf_xy = ddf.query(query_expr_xy) if query_expr_xy else ddf
+        ddf_gpu_xy = ddf_gpu.query(query_expr_xy) if query_expr_xy else ddf_gpu
 
         # Build map figure
         # Create datashader aggregation of x/y data that satisfies the range and created
@@ -588,7 +603,7 @@ if __name__ == '__main__':
             x_range=x_range, y_range=y_range
         )
         agg = cvs.points(
-            ddf_selected_range_created, x='x_3857', y='y_3857', agg=ds.count_cat('radio')
+            ddf_gpu_selected_range_created, x='x_3857', y='y_3857', agg=ds.count_cat('radio')
         )
 
         # Downselect aggregation to include only the select radio categories
@@ -628,18 +643,18 @@ if __name__ == '__main__':
         elif n_selected < 5000:
             # Display each individual point using a scattermapbox trace. This way we can
             # give each individual point a tooltip
-            ddf_small_expr = ' & '.join(
+            ddf_gpu_small_expr = ' & '.join(
                 [query_expr_xy] + #[f'(radio in {selected_radio_categories})'] +
                 query_expr_range_created_parts
             )
-            print(ddf_small_expr)
-            ddf_small = ddf.query(ddf_small_expr).to_pandas()
+            print(ddf_gpu_small_expr)
+            ddf_gpu_small = ddf_gpu.query(ddf_gpu_small_expr).to_pandas()
             print("querying done")
 
             lat, lon, radio, log10_range, description, mcc, net, created, status = (
-                ddf_small.lat, ddf_small.lon, ddf_small.radio, ddf_small.log10_range,
-                ddf_small.Description, ddf_small.mcc, ddf_small.net, ddf_small.created,
-                ddf_small.Status
+                ddf_gpu_small.lat, ddf_gpu_small.lon, ddf_gpu_small.radio, ddf_gpu_small.log10_range,
+                ddf_gpu_small.Description, ddf_gpu_small.mcc, ddf_gpu_small.net, ddf_gpu_small.created,
+                ddf_gpu_small.Status
             )
 
             # Format creation date column for tooltip
@@ -755,7 +770,7 @@ if __name__ == '__main__':
         map_graph['layout']['mapbox'].update(position)
 
         # Use datashader to histogram range, created, and radio simultaneously
-        agg_range_created_radio = compute_range_created_radio_hist(ddf_xy)
+        agg_range_created_radio = compute_range_created_radio_hist(ddf_gpu_xy)
 
         # Build radio histogram
         selected_radio_counts = agg_range_created_radio.sel(
@@ -793,8 +808,26 @@ if __name__ == '__main__':
         )
 
         print(f"Update time: {time.time() - t0}")
+        # compute_time = str(time.time() - t0) + " seconds"
+
+        compute_time_graph = {
+            'data': [{
+                'type': 'indicator',
+                'value': time.time() - t0,
+                'number': {
+                    'font': {
+                        'color': '#263238'
+                    }
+                }
+            }],
+            'layout': {
+                'template': template,
+                'height': 150,
+                'margin': {'l': 10, 'r': 10, 't': 10, 'b': 10}
+            }
+        }
         return (
-            n_selected_indicator, map_graph, radio_histogram,
+            compute_time_graph, n_selected_indicator, map_graph, radio_histogram,
             range_histogram, created_histogram
         )
 
