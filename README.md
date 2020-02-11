@@ -1,4 +1,7 @@
-## World Cell Towers Dash App
+## World Cell Towers Dash App (DASK CPU vs RAPIDS GPU)
+
+![preview](./preview.png)
+
 This repo contains a Python [Dash](https://dash.plot.ly) app for exploring the world
 cell tower dataset provided by [OpenCellid](https://www.opencellid.org/).
 
