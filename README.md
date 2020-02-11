@@ -15,8 +15,14 @@ To handle this fairly large dataset, this app makes use of
 ## cudf setup
 
 ```bash
+
+conda create -n test_environment
+
 conda install -c rapidsai -c nvidia -c conda-forge \
     -c defaults cudf=0.12 python=3.7 cudatoolkit=10.0 pyarrow
+
+conda update -n test_environment --file requirements.txt
+    
 ```
 
 ## Environment
